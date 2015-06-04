@@ -1,0 +1,22 @@
+apply from: file("${rootDir}/gradle/project.gradle")
+
+subprojects {
+    group = 'crawler'
+    version = '1.0.0'
+}
+
+project(':crawler') {
+    apply from: file("${rootDir}/gradle/lib.gradle")
+
+    dependencies {
+        compile(
+                'org.slf4j:slf4j-api:1.7.6',
+                'ch.qos.logback:logback-classic:1.1.1',
+                'com.google.guava:guava:17.0',
+                'org.jsoup:jsoup:1.7.3',
+                'org.apache.httpcomponents:httpclient:4.3.5',
+                'org.mapdb:mapdb:1.0.6',
+                'ch.qos.logback:logback-classic:1.1.2',
+        )
+    }
+}

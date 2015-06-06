@@ -9,7 +9,7 @@ import org.junit.Test;
 public class PageTest {
     @Test
     public void help() throws Exception {
-        Page.help("https://www.threadless.com/product/6503/");
+        Page.help("https://www.threadless.com/product/3711");
     }
 
 }

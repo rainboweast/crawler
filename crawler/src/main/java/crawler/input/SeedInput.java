@@ -2,38 +2,66 @@ package crawler.input;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
 import crawler.Context;
 import crawler.Input;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.mapdb.DB;
-import org.mapdb.DBMaker;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.nio.charset.Charset;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 /**
  * @author chi
  */
 public class SeedInput implements Input {
+    final Logger logger = LoggerFactory.getLogger(SeedInput.class);
+
     private final Queue<Context> queue = new ConcurrentLinkedQueue<>();
     private final List<Pattern> urlPatterns = Lists.newArrayList();
     private final int waitSeconds = 5;
-    private DB db;
+    private BloomFilter<CharSequence> filter;
+    private AtomicInteger count = new AtomicInteger();
+    private static final String PATH = "D:\\tmp\\bloom-filter.data";
+    private static final int storeCount = 1000;
 
     public SeedInput(String... urls) {
         for (String url : urls) {
             queue.add(new Context(url));
         }
+        filter = createFilter();
+    }
 
-        db = DBMaker.newMemoryDB()
-            .closeOnJvmShutdown()
-            .make();
+    @SuppressWarnings("unchecked")
+    BloomFilter<CharSequence> createFilter() {
+        File file = new File(PATH);
+        if (file.exists()) {
+            try (ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(new FileInputStream(file)))) {
+                filter = (BloomFilter<CharSequence>) ois.readObject();
+                logger.info("filter create from file system.");
+                return filter;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return BloomFilter.create(Funnels.stringFunnel(Charset.defaultCharset()), 1000 * 1000, 0.001f);
     }
 
     public SeedInput includes(String... urlPatterns) {
@@ -44,9 +72,6 @@ public class SeedInput implements Input {
     }
 
     public SeedInput file(File file) {
-        db = DBMaker.newFileDB(file)
-            .closeOnJvmShutdown()
-            .make();
         return this;
     }
 
@@ -98,11 +123,20 @@ public class SeedInput implements Input {
     }
 
     boolean isCrawled(String url) {
-        return db.getHashMap("history").get(url) != null;
+        return filter.mightContain(url);
     }
 
     void crawled(String url) {
-        db.getHashMap("history").put(url, "");
+        filter.put(url);
+        if (count.incrementAndGet() == storeCount) {
+            count.set(0);
+            try (ObjectOutputStream oos = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(PATH)))) {
+                oos.writeObject(filter);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
     }
 
     @Override

@@ -11,14 +11,10 @@ import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.Charset;
 import java.util.Iterator;
 import java.util.List;
@@ -39,29 +35,20 @@ public class SeedInput implements Input {
     private final int waitSeconds = 5;
     private BloomFilter<CharSequence> filter;
     private AtomicInteger count = new AtomicInteger();
-    private static final String PATH = "D:\\tmp\\bloom-filter.data";
-    private static final int storeCount = 1000;
+    private static final int resetCount = 1000;
+    private final File backupFile;
 
-    public SeedInput(String... urls) {
+    public SeedInput(File backupFile, String... urls) {
         for (String url : urls) {
             queue.add(new Context(url));
         }
-        filter = createFilter();
-    }
-
-    @SuppressWarnings("unchecked")
-    BloomFilter<CharSequence> createFilter() {
-        File file = new File(PATH);
-        if (file.exists()) {
-            try (ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(new FileInputStream(file)))) {
-                filter = (BloomFilter<CharSequence>) ois.readObject();
-                logger.info("filter create from file system.");
-                return filter;
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+        this.backupFile = backupFile;
+        try {
+            filter = backupFile.exists() ? BloomFilter.readFrom(new FileInputStream(backupFile), Funnels.stringFunnel(Charset.defaultCharset())) :
+                    BloomFilter.create(Funnels.stringFunnel(Charset.defaultCharset()), 10000 * 1000);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        return BloomFilter.create(Funnels.stringFunnel(Charset.defaultCharset()), 1000 * 1000, 0.001f);
     }
 
     public SeedInput includes(String... urlPatterns) {
@@ -122,16 +109,16 @@ public class SeedInput implements Input {
         return false;
     }
 
-    boolean isCrawled(String url) {
-        return filter.mightContain(url);
+    boolean notCrawled(String url) {
+        return !filter.mightContain(url);
     }
 
     void crawled(String url) {
         filter.put(url);
-        if (count.incrementAndGet() == storeCount) {
+        if (count.incrementAndGet() == resetCount) {
             count.set(0);
-            try (ObjectOutputStream oos = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(PATH)))) {
-                oos.writeObject(filter);
+            try {
+                filter.writeTo(new FileOutputStream(backupFile));
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -145,7 +132,7 @@ public class SeedInput implements Input {
         if (document != null) {
             for (Element element : document.select("a")) {
                 String url = element.attr("abs:href");
-                if (isInclude(url) && !isCrawled(url)) {
+                if (isInclude(url) && notCrawled(url)) {
                     queue.add(new Context(url));
                     crawled(url);
                 }
